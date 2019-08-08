@@ -32,14 +32,32 @@ func SetVerbosity(v int) int {
 // package instead.
 //
 // Example: stdr.New(log.New(os.Stderr, "", log.LstdFlags)))
-//FIXME: take an Options struct to set depth (see glogr)
 func New(std StdLogger) logr.Logger {
+	return NewWithOptions(std, Options{})
+}
+
+// NewWithOptions returns a logr.Logger which is implemented by Go's standard
+// log package, or something like it.  See New for details.
+func NewWithOptions(std StdLogger, opts Options) logr.Logger {
+	if opts.Depth < 0 {
+		opts.Depth = 0
+	}
+
 	return logger{
 		std:    std,
 		level:  0,
 		prefix: "",
 		values: nil,
+		depth:  opts.Depth,
 	}
+}
+
+type Options struct {
+	// DepthOffset biases the assumed number of call frames to the "true"
+	// caller.  This is useful when the calling code calls a function which then
+	// calls glogr (e.g. a logging shim to another API).  Values less than zero
+	// will be treated as zero.
+	Depth int
 }
 
 // StdLogger is the subset of the Go stdlib log.Logger API that is needed for
@@ -54,6 +72,7 @@ type logger struct {
 	level  int
 	prefix string
 	values []interface{}
+	depth  int
 }
 
 func (l logger) clone() logger {
@@ -130,7 +149,7 @@ func (l logger) Info(msg string, kvList ...interface{}) {
 		msgStr := flatten("msg", msg)
 		fixedStr := flatten(l.values...)
 		userStr := flatten(kvList...)
-		l.output(framesToCaller(), fmt.Sprintln(l.prefix, lvlStr, msgStr, fixedStr, userStr))
+		l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, lvlStr, msgStr, fixedStr, userStr))
 	}
 }
 
@@ -147,7 +166,7 @@ func (l logger) Error(err error, msg string, kvList ...interface{}) {
 	errStr := flatten("error", loggableErr)
 	fixedStr := flatten(l.values...)
 	userStr := flatten(kvList...)
-	l.output(framesToCaller(), fmt.Sprintln(l.prefix, errStr, msgStr, fixedStr, userStr))
+	l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, errStr, msgStr, fixedStr, userStr))
 }
 
 func (l logger) output(calldepth int, s string) {
