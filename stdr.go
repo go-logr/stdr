@@ -196,9 +196,9 @@ func (l logger) output(calldepth int, s string) {
 	}
 }
 
-func (l logger) V(level int) logr.InfoLogger {
+func (l logger) V(level int) logr.Logger {
 	new := l.clone()
-	new.level = level
+	new.level += level
 	return new
 }
 
@@ -221,4 +221,3 @@ func (l logger) WithValues(kvList ...interface{}) logr.Logger {
 }
 
 var _ logr.Logger = logger{}
-var _ logr.InfoLogger = logger{}
