@@ -214,6 +214,8 @@ func (l logger) WithName(name string) logr.Logger {
 	return new
 }
 
+// WithValues returns a new logr.Logger with the specified key-and-values
+// saved.
 func (l logger) WithValues(kvList ...interface{}) logr.Logger {
 	new := l.clone()
 	new.values = append(new.values, kvList...)
@@ -221,3 +223,17 @@ func (l logger) WithValues(kvList ...interface{}) logr.Logger {
 }
 
 var _ logr.Logger = logger{}
+
+// Underlier exposes access to the underlying logging implementation.  Since
+// callers only have a logr.Logger, they have to know which implementation is
+// in use, so this interface is less of an abstraction and more of way to test
+// type conversion.
+type Underlier interface {
+	GetUnderlying() StdLogger
+}
+
+// GetUnderlying returns the StdLogger underneath this logger.  Since StdLogger
+// is itself an interface, the result may or may not be a Go log.Logger.
+func (l logger) GetUnderlying() StdLogger {
+	return l.std
+}
