@@ -222,7 +222,14 @@ func (l logger) WithValues(kvList ...interface{}) logr.Logger {
 	return new
 }
 
+func (l logger) WithCallDepth(depth int) logr.Logger {
+	new := l.clone()
+	new.depth += depth
+	return new
+}
+
 var _ logr.Logger = logger{}
+var _ logr.CallDepthLogger = logger{}
 
 // Underlier exposes access to the underlying logging implementation.  Since
 // callers only have a logr.Logger, they have to know which implementation is
