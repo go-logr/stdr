@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime"
 	"sort"
 
@@ -60,21 +61,38 @@ func NewWithOptions(std StdLogger, opts Options) logr.Logger {
 	}
 
 	return logger{
-		std:    std,
-		level:  0,
-		prefix: "",
-		values: nil,
-		depth:  opts.Depth,
+		std:       std,
+		level:     0,
+		prefix:    "",
+		values:    nil,
+		depth:     opts.Depth,
+		logCaller: opts.LogCaller,
 	}
 }
 
 type Options struct {
-	// DepthOffset biases the assumed number of call frames to the "true"
-	// caller.  This is useful when the calling code calls a function which then
-	// calls glogr (e.g. a logging shim to another API).  Values less than zero
-	// will be treated as zero.
+	// Depth biases the assumed number of call frames to the "true" caller.
+	// This is useful when the calling code calls a function which then calls
+	// stdr (e.g. a logging shim to another API).  Values less than zero will
+	// be treated as zero.
 	Depth int
+
+	// LogCaller tells glogr to add a "caller" key to some or all log lines.
+	// The glog implementation always logs this information in its per-line
+	// header, whether this option is set or not.
+	LogCaller MessageClass
+
+	// TODO: add an option to log the date/time
 }
+
+type MessageClass int
+
+const (
+	None MessageClass = iota
+	All
+	Info
+	Error
+)
 
 // StdLogger is the subset of the Go stdlib log.Logger API that is needed for
 // this adapter.
@@ -84,11 +102,12 @@ type StdLogger interface {
 }
 
 type logger struct {
-	std    StdLogger
-	level  int
-	prefix string
-	values []interface{}
-	depth  int
+	std       StdLogger
+	level     int
+	prefix    string
+	values    []interface{}
+	depth     int
+	logCaller MessageClass
 }
 
 func (l logger) clone() logger {
@@ -159,13 +178,30 @@ func pretty(value interface{}) string {
 	return string(jb)
 }
 
+type callerID struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
+func (l logger) caller() callerID {
+	_, file, line, ok := runtime.Caller(framesToCaller() + l.depth + 1) // +1 for this frame
+	if !ok {
+		return callerID{"<unknown>", 0}
+	}
+	return callerID{filepath.Base(file), line}
+}
+
 func (l logger) Info(msg string, kvList ...interface{}) {
 	if l.Enabled() {
-		lvlStr := flatten("level", l.level)
-		msgStr := flatten("msg", msg)
+		builtin := make([]interface{}, 0, 4)
+		if l.logCaller == All || l.logCaller == Info {
+			builtin = append(builtin, "caller", l.caller())
+		}
+		builtin = append(builtin, "level", l.level, "msg", msg)
+		builtinStr := flatten(builtin...)
 		fixedStr := flatten(l.values...)
 		userStr := flatten(kvList...)
-		l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, lvlStr, msgStr, fixedStr, userStr))
+		l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, builtinStr, fixedStr, userStr))
 	}
 }
 
@@ -174,7 +210,12 @@ func (l logger) Enabled() bool {
 }
 
 func (l logger) Error(err error, msg string, kvList ...interface{}) {
-	msgStr := flatten("msg", msg)
+	builtin := make([]interface{}, 0, 4)
+	if l.logCaller == All || l.logCaller == Info {
+		builtin = append(builtin, "caller", l.caller())
+	}
+	builtin = append(builtin, "msg", msg)
+	builtinStr := flatten(builtin...)
 	var loggableErr interface{}
 	if err != nil {
 		loggableErr = err.Error()
@@ -182,7 +223,7 @@ func (l logger) Error(err error, msg string, kvList ...interface{}) {
 	errStr := flatten("error", loggableErr)
 	fixedStr := flatten(l.values...)
 	userStr := flatten(kvList...)
-	l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, errStr, msgStr, fixedStr, userStr))
+	l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, builtinStr, errStr, fixedStr, userStr))
 }
 
 func (l logger) output(calldepth int, s string) {
