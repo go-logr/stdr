@@ -43,7 +43,12 @@ func helper2(log logr.Logger, msg string) {
 func main() {
 	stdr.SetVerbosity(1)
 	log := stdr.NewWithOptions(stdlog.New(os.Stderr, "", stdlog.LstdFlags), stdr.Options{LogCaller: stdr.All})
-	log = log.WithName("MyName").WithValues("user", "you")
+	log = log.WithName("MyName")
+	example(log.WithValues("module", "example"))
+}
+
+// If this were in another package, all it would depend on in logr, not stdr.
+func example(log logr.Logger) {
 	log.Info("hello", "val1", 1, "val2", map[string]int{"k": 1})
 	log.V(1).Info("you should see this")
 	log.V(1).V(1).Info("you should NOT see this")
