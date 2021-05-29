@@ -37,7 +37,7 @@ func Helper(log logr.Logger, msg string) {
 }
 
 func helper2(log logr.Logger, msg string) {
-	logr.WithCallDepth(log, 2).Info(msg)
+	log.WithCallDepth(2).Info(msg)
 }
 
 func main() {
