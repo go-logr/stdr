@@ -32,7 +32,7 @@ import (
 )
 
 // The global verbosity level.  See SetVerbosity().
-var globalVerbosity int = 0
+var globalVerbosity int
 
 // SetVerbosity sets the global level against which all info logs will be
 // compared.  If this is greater than or equal to the "V" of the logger, the
@@ -341,7 +341,7 @@ func (l logger) output(calldepth int, s string) {
 // in the provided name string, but this library does not actually enforce that.
 func (l logger) WithName(name string) logr.LogSink {
 	if len(l.prefix) > 0 {
-		l.prefix = l.prefix + "/"
+		l.prefix += "/"
 	}
 	l.prefix += name
 	return &l
