@@ -309,7 +309,10 @@ func (l logger) Info(level int, msg string, kvList ...interface{}) {
 	args = append(args, l.values...)
 	args = append(args, kvList...)
 	argsStr := flatten(args...)
-	l.output(l.depth+1, fmt.Sprintln(l.prefix, argsStr))
+	if l.prefix != "" {
+		argsStr = l.prefix + " " + argsStr
+	}
+	l.output(l.depth+1, argsStr)
 }
 
 func (l logger) Error(err error, msg string, kvList ...interface{}) {
@@ -326,7 +329,10 @@ func (l logger) Error(err error, msg string, kvList ...interface{}) {
 	args = append(args, l.values...)
 	args = append(args, kvList...)
 	argsStr := flatten(args...)
-	l.output(l.depth+1, fmt.Sprintln(l.prefix, argsStr))
+	if l.prefix != "" {
+		argsStr = l.prefix + " " + argsStr
+	}
+	l.output(l.depth+1, argsStr)
 }
 
 func (l logger) output(calldepth int, s string) {
