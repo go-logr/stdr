@@ -84,9 +84,8 @@ type Options struct {
 	// be treated as zero.
 	Depth int
 
-	// LogCaller tells glogr to add a "caller" key to some or all log lines.
-	// The glog implementation always logs this information in its per-line
-	// header, whether this option is set or not.
+	// LogCaller tells stdr to add a "caller" key to some or all log lines.
+	// Go's log package has options to log this natively, too.
 	LogCaller MessageClass
 
 	// TODO: add an option to log the date/time
