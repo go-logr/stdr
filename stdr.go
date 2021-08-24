@@ -20,6 +20,7 @@ package stdr
 
 import (
 	"log"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
@@ -40,10 +41,10 @@ func SetVerbosity(v int) int {
 }
 
 // New returns a logr.Logger which is implemented by Go's standard log package,
-// or something like it.  If std is nil, this will call functions in the log
-// package instead.
+// or something like it.  If std is nil, this will use a default logger
+// instead.
 //
-// Example: stdr.New(log.New(os.Stderr, "", log.LstdFlags)))
+// Example: stdr.New(log.New(os.Stderr, "", log.LstdFlags|log.Lshortfile)))
 func New(std StdLogger) logr.Logger {
 	return NewWithOptions(std, Options{})
 }
@@ -51,6 +52,11 @@ func New(std StdLogger) logr.Logger {
 // NewWithOptions returns a logr.Logger which is implemented by Go's standard
 // log package, or something like it.  See New for details.
 func NewWithOptions(std StdLogger, opts Options) logr.Logger {
+	if std == nil {
+		// Go's log.Default() is only available in 1.16 and higher.
+		std = log.New(os.Stderr, "", log.LstdFlags)
+	}
+
 	if opts.Depth < 0 {
 		opts.Depth = 0
 	}
@@ -124,7 +130,7 @@ func (l logger) Info(level int, msg string, kvList ...interface{}) {
 	if prefix != "" {
 		args = prefix + ": " + args
 	}
-	l.output(args)
+	_ = l.std.Output(l.Formatter.GetDepth()+1, args)
 }
 
 func (l logger) Error(err error, msg string, kvList ...interface{}) {
@@ -132,7 +138,7 @@ func (l logger) Error(err error, msg string, kvList ...interface{}) {
 	if prefix != "" {
 		args = prefix + ": " + args
 	}
-	l.output(args)
+	_ = l.std.Output(l.Formatter.GetDepth()+1, args)
 }
 
 func (l logger) WithName(name string) logr.LogSink {
@@ -148,17 +154,6 @@ func (l logger) WithValues(kvList ...interface{}) logr.LogSink {
 func (l logger) WithCallDepth(depth int) logr.LogSink {
 	l.Formatter.AddCallDepth(depth)
 	return &l
-}
-
-func (l logger) output(s string) {
-	depth := l.Formatter.GetDepth() + 2 // offset for this adapter
-
-	// ignore errors - what can we really do about them?
-	if l.std != nil {
-		_ = l.std.Output(depth, s)
-	} else {
-		_ = log.Output(depth, s)
-	}
 }
 
 // Underlier exposes access to the underlying logging implementation.  Since
