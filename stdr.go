@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package strd implements github.com/go-logr/logr.Logger in terms of
+// Package stdr implements github.com/go-logr/logr.Logger in terms of
 // Go's standard log package.
 package stdr
 
@@ -91,9 +91,13 @@ type Options struct {
 type MessageClass int
 
 const (
+	// None ignores all message classes.
 	None MessageClass = iota
+	// All considers all message classes.
 	All
+	// Info only considers info messages.
 	Info
+	// Error only considers error messages.
 	Error
 )
 
