@@ -19,16 +19,11 @@ limitations under the License.
 package stdr
 
 import (
-	"bytes"
-	"fmt"
 	"log"
-	"path/filepath"
-	"reflect"
-	"runtime"
-	"strconv"
-	"strings"
+	"os"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 )
 
 // The global verbosity level.  See SetVerbosity().
@@ -46,10 +41,10 @@ func SetVerbosity(v int) int {
 }
 
 // New returns a logr.Logger which is implemented by Go's standard log package,
-// or something like it.  If std is nil, this will call functions in the log
-// package instead.
+// or something like it.  If std is nil, this will use a default logger
+// instead.
 //
-// Example: stdr.New(log.New(os.Stderr, "", log.LstdFlags)))
+// Example: stdr.New(log.New(os.Stderr, "", log.LstdFlags|log.Lshortfile)))
 func New(std StdLogger) logr.Logger {
 	return NewWithOptions(std, Options{})
 }
@@ -57,17 +52,27 @@ func New(std StdLogger) logr.Logger {
 // NewWithOptions returns a logr.Logger which is implemented by Go's standard
 // log package, or something like it.  See New for details.
 func NewWithOptions(std StdLogger, opts Options) logr.Logger {
+	if std == nil {
+		// Go's log.Default() is only available in 1.16 and higher.
+		std = log.New(os.Stderr, "", log.LstdFlags)
+	}
+
 	if opts.Depth < 0 {
 		opts.Depth = 0
 	}
 
-	sl := &logger{
-		std:       std,
-		prefix:    "",
-		values:    nil,
-		depth:     opts.Depth,
-		logCaller: opts.LogCaller,
+	fopts := funcr.Options{
+		LogCaller: funcr.MessageClass(opts.LogCaller),
 	}
+
+	sl := &logger{
+		Formatter: funcr.NewFormatter(fopts),
+		std:       std,
+	}
+
+	// For skipping our own logger.Info/Error.
+	sl.Formatter.AddCallDepth(1 + opts.Depth)
+
 	return logr.New(sl)
 }
 
@@ -79,9 +84,8 @@ type Options struct {
 	// be treated as zero.
 	Depth int
 
-	// LogCaller tells glogr to add a "caller" key to some or all log lines.
-	// The glog implementation always logs this information in its per-line
-	// header, whether this option is set or not.
+	// LogCaller tells stdr to add a "caller" key to some or all log lines.
+	// Go's log package has options to log this natively, too.
 	LogCaller MessageClass
 
 	// TODO: add an option to log the date/time
@@ -109,261 +113,45 @@ type StdLogger interface {
 }
 
 type logger struct {
-	std       StdLogger
-	prefix    string
-	values    []interface{}
-	depth     int
-	logCaller MessageClass
+	funcr.Formatter
+	std StdLogger
 }
 
 var _ logr.LogSink = &logger{}
 var _ logr.CallDepthLogSink = &logger{}
-
-func flatten(kvList ...interface{}) string {
-	if len(kvList)%2 != 0 {
-		kvList = append(kvList, "<no-value>")
-	}
-	// Empirically bytes.Buffer is faster than strings.Builder for this.
-	buf := bytes.NewBuffer(make([]byte, 0, 1024))
-	for i := 0; i < len(kvList); i += 2 {
-		k, ok := kvList[i].(string)
-		if !ok {
-			k = fmt.Sprintf("<non-string-key-%d>", i/2)
-		}
-		v := kvList[i+1]
-
-		if i > 0 {
-			buf.WriteRune(' ')
-		}
-		buf.WriteRune('"')
-		buf.WriteString(k)
-		buf.WriteRune('"')
-		buf.WriteRune('=')
-		buf.WriteString(pretty(v))
-	}
-	return buf.String()
-}
-
-func pretty(value interface{}) string {
-	return prettyWithFlags(value, 0)
-}
-
-const (
-	flagRawString = 0x1
-)
-
-// TODO: This is not fast. Most of the overhead goes here.
-func prettyWithFlags(value interface{}, flags uint32) string {
-	// Handling the most common types without reflect is a small perf win.
-	switch v := value.(type) {
-	case bool:
-		return strconv.FormatBool(v)
-	case string:
-		if flags&flagRawString > 0 {
-			return v
-		}
-		// This is empirically faster than strings.Builder.
-		return `"` + v + `"`
-	case int:
-		return strconv.FormatInt(int64(v), 10)
-	case int8:
-		return strconv.FormatInt(int64(v), 10)
-	case int16:
-		return strconv.FormatInt(int64(v), 10)
-	case int32:
-		return strconv.FormatInt(int64(v), 10)
-	case int64:
-		return strconv.FormatInt(int64(v), 10)
-	case uint:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint8:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint16:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint32:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint64:
-		return strconv.FormatUint(v, 10)
-	case uintptr:
-		return strconv.FormatUint(uint64(v), 10)
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	}
-
-	buf := bytes.NewBuffer(make([]byte, 0, 256))
-	t := reflect.TypeOf(value)
-	if t == nil {
-		return "null"
-	}
-	v := reflect.ValueOf(value)
-	switch t.Kind() {
-	case reflect.Bool:
-		return strconv.FormatBool(v.Bool())
-	case reflect.String:
-		if flags&flagRawString > 0 {
-			return v.String()
-		}
-		// This is empirically faster than strings.Builder.
-		return `"` + v.String() + `"`
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(int64(v.Int()), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return strconv.FormatUint(uint64(v.Uint()), 10)
-	case reflect.Float32:
-		return strconv.FormatFloat(float64(v.Float()), 'f', -1, 32)
-	case reflect.Float64:
-		return strconv.FormatFloat(v.Float(), 'f', -1, 64)
-	case reflect.Struct:
-		buf.WriteRune('{')
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			if f.PkgPath != "" {
-				// reflect says this field is only defined for non-exported fields.
-				continue
-			}
-			if i > 0 {
-				buf.WriteRune(',')
-			}
-			buf.WriteRune('"')
-			name := f.Name
-			if tag, found := f.Tag.Lookup("json"); found {
-				if comma := strings.Index(tag, ","); comma != -1 {
-					name = tag[:comma]
-				} else {
-					name = tag
-				}
-			}
-			buf.WriteString(name)
-			buf.WriteRune('"')
-			buf.WriteRune(':')
-			buf.WriteString(pretty(v.Field(i).Interface()))
-		}
-		buf.WriteRune('}')
-		return buf.String()
-	case reflect.Slice, reflect.Array:
-		buf.WriteRune('[')
-		for i := 0; i < v.Len(); i++ {
-			if i > 0 {
-				buf.WriteRune(',')
-			}
-			e := v.Index(i)
-			buf.WriteString(pretty(e.Interface()))
-		}
-		buf.WriteRune(']')
-		return buf.String()
-	case reflect.Map:
-		buf.WriteRune('{')
-		// This does not sort the map keys, for best perf.
-		it := v.MapRange()
-		i := 0
-		for it.Next() {
-			if i > 0 {
-				buf.WriteRune(',')
-			}
-			// JSON only does string keys.
-			buf.WriteRune('"')
-			buf.WriteString(prettyWithFlags(it.Key().Interface(), flagRawString))
-			buf.WriteRune('"')
-			buf.WriteRune(':')
-			buf.WriteString(pretty(it.Value().Interface()))
-			i++
-		}
-		buf.WriteRune('}')
-		return buf.String()
-	case reflect.Ptr, reflect.Interface:
-		return pretty(v.Elem().Interface())
-	}
-	return fmt.Sprintf(`"<unhandled-%s>"`, t.Kind().String())
-}
-
-type callerID struct {
-	File string `json:"file"`
-	Line int    `json:"line"`
-}
-
-func (l logger) caller() callerID {
-	// +1 for this frame, +1 for Info/Error.
-	_, file, line, ok := runtime.Caller(l.depth + 2)
-	if !ok {
-		return callerID{"<unknown>", 0}
-	}
-	return callerID{filepath.Base(file), line}
-}
-
-func (l *logger) Init(info logr.RuntimeInfo) {
-	l.depth += info.CallDepth
-}
 
 func (l logger) Enabled(level int) bool {
 	return globalVerbosity >= level
 }
 
 func (l logger) Info(level int, msg string, kvList ...interface{}) {
-	args := make([]interface{}, 0, 64) // using a constant here impacts perf
-	if l.logCaller == All || l.logCaller == Info {
-		args = append(args, "caller", l.caller())
+	prefix, args := l.FormatInfo(level, msg, kvList)
+	if prefix != "" {
+		args = prefix + ": " + args
 	}
-	args = append(args, "level", level, "msg", msg)
-	args = append(args, l.values...)
-	args = append(args, kvList...)
-	argsStr := flatten(args...)
-	l.output(l.depth+1, fmt.Sprintln(l.prefix, argsStr))
+	_ = l.std.Output(l.Formatter.GetDepth()+1, args)
 }
 
 func (l logger) Error(err error, msg string, kvList ...interface{}) {
-	args := make([]interface{}, 0, 64) // using a constant here impacts perf
-	if l.logCaller == All || l.logCaller == Error {
-		args = append(args, "caller", l.caller())
+	prefix, args := l.FormatError(err, msg, kvList)
+	if prefix != "" {
+		args = prefix + ": " + args
 	}
-	args = append(args, "msg", msg)
-	var loggableErr interface{}
-	if err != nil {
-		loggableErr = err.Error()
-	}
-	args = append(args, "error", loggableErr)
-	args = append(args, l.values...)
-	args = append(args, kvList...)
-	argsStr := flatten(args...)
-	l.output(l.depth+1, fmt.Sprintln(l.prefix, argsStr))
+	_ = l.std.Output(l.Formatter.GetDepth()+1, args)
 }
 
-func (l logger) output(calldepth int, s string) {
-	depth := calldepth + 2 // offset for this adapter
-
-	// ignore errors - what can we really do about them?
-	if l.std != nil {
-		_ = l.std.Output(depth, s)
-	} else {
-		_ = log.Output(depth, s)
-	}
-}
-
-// WithName returns a new logr.Logger with the specified name appended.  stdr
-// uses '/' characters to separate name elements.  Callers should not pass '/'
-// in the provided name string, but this library does not actually enforce that.
 func (l logger) WithName(name string) logr.LogSink {
-	if len(l.prefix) > 0 {
-		l.prefix += "/"
-	}
-	l.prefix += name
+	l.Formatter.AddName(name)
 	return &l
-
 }
 
-// WithValues returns a new logr.Logger with the specified key-and-values
-// saved.
 func (l logger) WithValues(kvList ...interface{}) logr.LogSink {
-	// Three slice args forces a copy.
-	n := len(l.values)
-	l.values = append(l.values[:n:n], kvList...)
+	l.Formatter.AddValues(kvList)
 	return &l
-
 }
 
 func (l logger) WithCallDepth(depth int) logr.LogSink {
-	l.depth += depth
+	l.Formatter.AddCallDepth(depth)
 	return &l
 }
 
