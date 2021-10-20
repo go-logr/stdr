@@ -39,7 +39,7 @@ func ExampleNew() {
 	// Output:
 	// example_test.go:35: "level"=0 "msg"="info message with default options"
 	// example_test.go:36: "msg"="error message with default options" "error"="some error"
-	// example_test.go:37: "level"=0 "msg"="invalid key" "<non-string-key-2>"="answer"
+	// example_test.go:37: "level"=0 "msg"="invalid key" "<non-string-key: 42>"="answer"
 	// example_test.go:38: "level"=0 "msg"="missing value" "answer"="<no-value>"
 }
 
