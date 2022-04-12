@@ -68,6 +68,7 @@ func NewWithOptions(std StdLogger, opts Options) logr.Logger {
 	sl := &logger{
 		Formatter: funcr.NewFormatter(fopts),
 		std:       std,
+		verbosity: opts.Verbosity,
 	}
 
 	// For skipping our own logger.Info/Error.
@@ -87,6 +88,11 @@ type Options struct {
 	// LogCaller tells stdr to add a "caller" key to some or all log lines.
 	// Go's log package has options to log this natively, too.
 	LogCaller MessageClass
+
+	// Verbosity tells the logger which V logs to write. Higher values enable more logs.
+	// If nil, the global value set by SetVerbosity will be used. A pointer is used to provide
+	// nil as the default value.
+	Verbosity *int
 
 	// TODO: add an option to log the date/time
 }
@@ -114,13 +120,17 @@ type StdLogger interface {
 
 type logger struct {
 	funcr.Formatter
-	std StdLogger
+	std       StdLogger
+	verbosity *int
 }
 
 var _ logr.LogSink = &logger{}
 var _ logr.CallDepthLogSink = &logger{}
 
 func (l logger) Enabled(level int) bool {
+	if l.verbosity != nil {
+		return *l.verbosity >= level
+	}
 	return globalVerbosity >= level
 }
 
